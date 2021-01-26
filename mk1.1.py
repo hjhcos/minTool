@@ -58,10 +58,7 @@ class MD(Base):
 
     def detection(self, string):
         """ 检测 ===》 样式标记检测"""
-        # TODO: 检测标记是否有无结尾符
         # print("MD.detection", string)
-        # # > 已经做了处理不需要再进行处理
-        # 这个循环是对数据里面是否存在标记进行预处理 没有则什么都不返回
         self.tags = ['*', '-', '_', '$', '`', '~']
         for tag in self.tags:
             if tag in string:
@@ -74,7 +71,6 @@ class MD(Base):
         matched = []    # 匹配到的标记
         # start = 0      # 标记内容开头索引
         # end = 0        # 标记内容结尾索引
-        # TODO: 检测标记是否在同一行 除了 表格、代码块、数学公式以外 都在同一行
         for index, char in enumerate(string):
             if char in self.tags:
                 if not match_tag:
@@ -121,7 +117,7 @@ class MD(Base):
                 matching.pop(temp)
                 self.stop = False
         if matched:
-            """ 判断是否真正拥有数据"""
+            # 判断是否真正拥有数据
             self.division(matched)
             print(matched)
         pass
@@ -129,16 +125,17 @@ class MD(Base):
     def process(self, string):
         """ 处理器 ===》 内容分割、修复（标记、数据）"""
         co = string.strip()
-        if not co:  # 防止没有字符串的情况 \n
+        if not co:  # 防止没有字符串的情况
             return '\n'
         string = co
+        
         self.tags = ['#', '>', '`', '$', '-']
-        # 处理开头字符是否符合前四个标记 符合就进行下一步处理
-
+        
         if string[0] in self.tags:
             if string[0] in self.tags[:2]:
-                # # > 内容分割 标记检测
+                
                 string = string.split(' ')
+                
                 if string[0][0] == '#':
                     tag = string[0]
                     string = ' '.join(string[1:])
@@ -178,10 +175,11 @@ class MD(Base):
 
 
 if __name__ == '__main__':
-    with open('blog.md', 'r', encoding='utf-8') as fd:
-        t = fd.read()
-        t = t.split('\n')
-    md = MD()
+    # with open('blog.md', 'r', encoding='utf-8') as fd:
+    #     t = fd.read()
+    #     t = t.split('\n')
+    # md = MD()
 
-    for i in t:
-        md.process(i)
+    # for i in t:
+    #     md.process(i)
+    pass
