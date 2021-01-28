@@ -5,8 +5,6 @@
 # @Project  : mark_app
 # @Software : PyCharm
 # =============================
-
-import re
 import os
 from typing import List, Tuple
 
@@ -34,56 +32,67 @@ class MD(Base):
         super().__init__()
         # self.tags = ['#', '>', '`', '$', '_', '*', '-', '+', '~', '\\', '[', ']', '^', '(', ')', '|']
         self.tags = ''
+        # 新增属性 mode
+        self.mode = 'normal'  # 造成停止的原因 table list code math
         self.stop = False  # 是否停止样式检测的状态
         self.match = ''  # 匹配标记
-        self.result = []  # 存放每段索引标记信息 [[['*', (start, end)], ['_', (start, end)]...], [['_', (start, end)]]]
+        self.result = []  # 存放每段索引标记信息
 
         if file:
             file = os.path.abspath(file)
             with open(file, 'r', encoding='utf-8') as fd:
                 self.file = self.format(fd)
             if temp:
-                with open(file.split('.')[0]+'.tmp', 'w', encoding='utf-8') as f:
+                with open(file.split('.')[0] + '.tmp', 'w', encoding='utf-8') as f:
                     f.write(str(self.file))
 
-    def division(self, string: list):
-        """ 分割 ===》 内容与标记分割 只处理样式标签"""
-        # print("MD.division", string)
+    def division(self, match: list):
+        """ 分割 --> 内容与标记分割 只处理样式标签"""
         pass
 
-    def detection(self, string: str):
+    @staticmethod
+    def detection(string: str):
         """
         检测  -->  样式标记检测
+
         :param string:
-        :return: List[str, Tuple[int, int]]
+        :return: List[dict{}]]
         """
-        print("MD.detection", string)
-        self.tags = ['*', '-', '_', '$', '`', '~']
+
+        # print("MD.detection", string)
+        tags = ['*', '-', '_', '$', '`', '~']
         match_tag = ''  # 当前标记
-        matching = []   # 开始标记存放 待匹配
-        matched = []    # 匹配到的标记
+        matching = []  # 开始标记存放 待匹配
+        matched = []  # 匹配到的标记
+        stop = False    # 标记存放引起的停止位
+        match = ''  # 存放前一个匹配标记
         # start = 0      # 标记内容开头索引
         # end = 0        # 标记内容结尾索引
         # 检测标记是否有结尾符
+        for tag in tags:
+            if tag in string:
+                break
+            if tag == '~':
+                return []
         for index, char in enumerate(string):
-            if char in self.tags:
+            if char in tags:
                 if not match_tag:
                     match_tag = char
-                    if index+1 == len(string):
-                        self.stop = True
-                        self.match = match_tag
+                    if index + 1 == len(string):
+                        stop = True
+                        match = match_tag
                 elif char == match_tag[0]:
                     match_tag += char
-                    if index+1 == len(string):
+                    if index + 1 == len(string):
                         if match_tag in matching:
-                            self.stop = True
-                            self.match = match_tag
+                            stop = True
+                            match = match_tag
                 # elif match_tag in matching:
                 #     self.stop = True
                 else:
                     if match_tag in matching:
-                        self.stop = True
-                        self.match = match_tag
+                        stop = True
+                        match = match_tag
                     start = index
                     matching.append(match_tag)
                     matching.append(start)
@@ -91,9 +100,8 @@ class MD(Base):
             else:
                 if match_tag:
                     if match_tag in matching:
-                        self.stop = True
-                        self.match = match_tag
-                        match_tag = ''
+                        stop = True
+                        match, match_tag = match_tag, ''
                     else:
                         if match_tag:
                             start = index
@@ -101,106 +109,179 @@ class MD(Base):
                             matching.append(start)
                             match_tag = ''
 
-            if self.stop:
-                start = matching.index(self.match)
+            if stop:
+                start = matching.index(match)
                 matching.pop(start)
                 temp = start
                 start = matching[start]
-                end = index - len(self.match)
-                matched.append([self.match, (start, end)])
+                end = index - len(match)
+                data = {
+                    'tag': match,
+                    'start': start,
+                    'end': end
+                }
+                matched.append(data)
                 matching.pop(temp)
-                self.stop = False
-        if matched:
-            # TODO: 分割数据是否正确
-            self.division(matched)
-        # TODO: 返回最后结果
+                stop = False
+        # 处理超链接 [][] []() [^]
+        if bool('[' in string) and bool(']' in string):
+            count = True
+            s = string
+            while count:
+                start = s.find('[')
+                end = s.find(']')
+                try:
+                    if s[start + 1] == '^':
+                        pass
+                    elif s[end + 1] == '(':
+                        lstart = s.find('(')
+                        rend = s.find(')')
+                        matched.append(['[]()', (start, end, lstart, rend)])
+                        end = rend
+                    elif s[end + 1] == '[':
+                        pass
+                    else:
+                        count = False
+                except IndexError:
+                    pass
+                s = s[end + 1:]
+                count = False if s.find('[') == -1 else True
+
+        matched.sort(key=lambda x: x['start'])
         return matched
 
     def row_process(self, string: str):
         """
         行处理器  -->  检测、分割
+        1. 换行标记触发停止位
+        2. 模式之间的切换
 
-        :return: List[List[str, Tuple[int, int]]]
-            列表第一层为 每一行数据row
-            列表第二层为 每一行里面每一个标记数据
-            str: 标记
-            tuple: tuple(start, end)
-            start: 标记内容开始索引
-            end: 标记内容结尾索引
         """
 
-        result = []     # 存放标记
-        if string == '':  # 防止没有字符串的情况
-            # 舍弃这种数据
-            result = [['\n', (None, None)]]
-            # TODO: 结果返回
-        elif string[0] == '\t':
-            # TODO: 处理嵌入列表的情况
-            string = string[1:]
-            result.append(['\t', (1, -1)])
-            result.append(self.detection(string))
-            # TODO: 结果返回
+        result = []  # 存放标记
+        res = ''
+        if string[0] == ' ':
+            # string = string[1:]
+            res = {
+                'tag': '\t',
+                'start': 1,
+                'end': -1
+            }
         # 处理 # >
         elif string[0] in ['#', '>']:
-            # 同时处理 # >
             string = string.split(' ')
             tag = string[0]
-            string = ' '.join(string[1:])
-            result.append([tag, (len(tag)+1, -1)])
+            # string = ' '.join(string[1:])
+            string = ' '.join(string)
+            res = {
+                'tag': tag,
+                'start': 1,
+                'end': -1,
+            }
             # if self.detection(string):
             #     result.append(self.detection(string))
-            result.append(self.detection(string))
-            # TODO: 结果返回
-        # 处理 ` $
         elif string[0] in ['`', '$']:
-            # 标记判别 `、$ 是否换行
             if string[:3] == '```':
-                # 最后一个 ``` 的索引不为零
-                if string.rfind('```'):
-                    result.append(self.detection(string))
-                    # TODO: 结果返回
-                else:
-                    # 设置换行标记提醒
+                if not string.rfind('```'):
+                    tag = string
                     self.tags = '```'
                     self.stop = True
-                    result = [[string, (None, None)]]
-                    # TODO: 结果返回
+                    self.mode = 'code'
+                    res = {
+                        'tag': tag,
+                        'start': 1,
+                        'end': None,
+                    }
             elif string[:2] == '$$':
-                if string.rfind('$$'):
-                    result.append(self.detection(string))
-                    # TODO: 结果返回
-                else:
+                if not string.rfind('$$'):
                     self.tags = '$$'
                     self.stop = True
-                    result = ['$$', (None, None)]
-                    # TODO: 结果返回
+                    self.mode = 'math'
+                    res = {
+                        'tag': self.tags,
+                        'start': 1,
+                        'end': None
+                    }
         # |
         elif bool(string[0] == '|') and bool(string[-1] == '|'):
-            result = ['|', (int(string.count('|')-1), None)]
-            # TODO: 结果返回
+            self.mode = 'table'
+            self.stop = True
+            res = {
+                'tag': '|',
+                'start': string.count('|')-1,
+                'end': None,
+            }
+        # + - 1.
+        elif string[:2] in ['+ ', '- ', '1.']:
+            tag = string.split(' ')[0]
+            res = {
+                'tag': tag,
+                'start': 1,
+                'end': None
+            }
+            self.stop = True
+            self.mode = 'list'
+        if res:
+            result.append(res)
+            result += self.detection(string)
         else:
-            result.append(self.detection(string))
-            # TODO: 结果返回
+            result += self.detection(string)
+        # print(result)
         return result
 
-    def process(self):
+    def process(self, file):
         """
         处理器 --> 行处理 保存结果
+ 
         :return: None
         """
-        if not isinstance(self.file, str):
-            raise TypeError(f'self.file is not str_type, it is {type(self.file)}')
-        for row in self.file.split('\n'):
-            # TODO: 对空数据标记列表进行识别
-            # TODO: 对换行数据标记进行识别 | | | [][] [^]
-            # TODO: 对内容原样保存
-            if not self.stop:
+        for row in file.split('\n'):
+            # TODO: 不破坏格式化的内容
+            if not row:
+                self.stop = False
+                self.mode = 'normal'
+                self.result.append([{
+                    'tag': '\n',
+                    'start': None,
+                    'end': None
+                }])
+            elif self.mode == 'normal':
                 self.result.append(self.row_process(row))
-            else:
-                if self.tags in row:
-                    if len(self.tags) == len(row):
-                        print('True')
-                        self.stop = False
+            elif self.mode == 'code' or self.mode == 'math':
+                if row.strip() in ['```', '$$']:
+                    self.mode = 'normal'
+                    self.stop = False
+                    self.result.append([{
+                        'tag': self.tags,
+                        'start': None,
+                        'end': -1
+                    }])
+                else:
+                    self.result.append(None)
+            elif self.mode == 'table':
+                if (row[0] == '|') and (row[-1] == '|'):
+                    self.result.append(None)
+                else:
+                    self.stop = False
+                    self.mode = 'normal'
+                    self.result.append(self.row_process(row))
+            elif self.mode == 'list':
+                if row.strip()[0] in ['+', '-']:
+                    index = row.find('+') if row.strip()[0] == '+' else row.find('-')
+                    row = row[:index].replace('    ', '\t')+''+row[index:]
+                    # TODO: 返回结果
+                    self.result.append(None)
+                elif row.find('.') != -1:
+                    if row[:row.find('.')].strip().isalnum():
+                        index = row.find('.')
+                        row = row[:index-1].replace('    ', '\t')+''+row[index-1:]
+                        # TODO: 返回结果
+                        self.result.append(None)
+                else:
+                    self.stop = False
+                    self.mode = 'normal'
+                    self.result.append(self.row_process(row))
+            self.file += row+'\n'
 
     @staticmethod
     def format(file) -> str:
@@ -210,32 +291,33 @@ class MD(Base):
         :type file: io.TextIO
         :return: string
         """
-        
+
         format_file = ''
         for string in file.readlines():
-            if (not string) or (string == '\n'):
-                format_file += str(string)
-            elif string[0] == '\t' or string[:4] == '    ':
-                format_file += str('\t'+string[1 if string[0] == "\t" else 4:])
+            if not string.strip():
+                # format_file += str(string)
+                pass
+            # elif string[0] == '\t' or string[:4] == '    ':
+            #     format_file += str('\t' + string[1 if string[0] == "\t" else 4:])
             else:
-                string = string.strip()
+                # 将四个以下连续空格去除 四个连续空格替换成一个空格
+                string = string.replace('   ', '\t').strip('\t')
                 if string[0] in ['#', '>']:
                     string = string.split(' ')
                     if string[0][-1] == '#':
                         if len(string) != 1:
-                            format_file += str(' '.join(string)+'\n')
+                            format_file += str(' '.join(string))
                     elif string[0][-1] == '>':
                         string = ' '.join(string)
                         for index, char in enumerate(string):
                             if char != '>' and char != ' ':
                                 char = string[:index].replace(' ', '')
                                 string = string[index:]
-                                format_file += str(char+' '+string+'\n')
+                                format_file += str(char + ' ' + string)
                                 break
                     else:
                         string = ' '.join(string)
                         tag = ''
-                        # 对内容与标记 # 、> 紧贴在一起做处理
                         if string[0] == '#':
                             string = string.split('#')
                             tag = '#'
@@ -245,13 +327,18 @@ class MD(Base):
                         for index, char in enumerate(string):
                             if char:
                                 string = f'{tag}'.join(string[index:])
-                                format_file += str(tag*index+' '+string+'\n')
+                                format_file += str(tag * index + ' ' + string)
                                 break
                 else:
-                    format_file += str(string + '\n')
+                    format_file += str(string)
         return format_file
 
     def load(self, string):
         """ 加载器 --> 数据实时返回"""
         pass
 
+
+# 处理 HTML 标记
+class HTML(Base):
+    def __init__(self):
+        super().__init__()
